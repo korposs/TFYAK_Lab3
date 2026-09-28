@@ -1,9 +1,3 @@
-"""
-Текстовый редактор - лабораторная работа №1.
-Тема: Объявление структуры на языке Java.
-Автор: Башинов Арья Игоревич, группа АП-326.
-"""
-
 import sys
 from pathlib import Path
 
@@ -12,6 +6,8 @@ from PySide6.QtGui import QAction, QIcon, QKeySequence, QPalette, QColor, QBrush
 from PySide6.QtWidgets import QApplication, QFileDialog, QMainWindow, QMessageBox, QPlainTextEdit, QSplitter, QStyleFactory, QToolBar, QTableWidget, QTableWidgetItem
 
 from compiler.scanner import Scanner
+
+from compiler.parser import Parser
 
 APP_TITLE = "Текстовый редактор"
 ICONS_DIR = Path(__file__).parent / "resources" / "icons"
@@ -75,9 +71,8 @@ class MainWindow(QMainWindow):
         self.literature_action = QAction("Список литературы", self)
         self.source_action = QAction("Исходный код программы", self)
 
-        self.run_action = QAction("Пуск", self)
-
-        self.run_menu_action = QAction("Пуск", self)
+        self.run_lexer_action = QAction("Лексический анализ", self)
+        self.run_parser_action = QAction("Синтаксический анализ", self)
 
         self.help_action = QAction("Вызов справки", self)
         self.about_action = QAction("О программе", self)
@@ -100,7 +95,8 @@ class MainWindow(QMainWindow):
         self.delete_action.setShortcut(QKeySequence("Delete"))
         self.select_all_action.setShortcut(QKeySequence.StandardKey.SelectAll)
 
-        self.run_menu_action.setShortcut(QKeySequence("F5"))
+        self.run_lexer_action.setShortcut(QKeySequence("F5"))
+        self.run_parser_action.setShortcut(QKeySequence("F6"))
 
         self.help_action.setShortcut(QKeySequence.StandardKey.HelpContents)
 
@@ -115,9 +111,10 @@ class MainWindow(QMainWindow):
             self.copy_action: "copy.png",
             self.paste_action: "paste.png",
             self.delete_action: "delete.png",
-            self.run_action: "run.png",
             self.help_action: "help.png",
             self.about_action: "about.png",
+            self.run_lexer_action: "run_lex.png",
+            self.run_parser_action: "run_synt.png",
         }
 
         for action, filename in icon_map.items():
@@ -159,7 +156,9 @@ class MainWindow(QMainWindow):
         text_menu.addAction(self.literature_action)
         text_menu.addAction(self.source_action)
 
-        menu_bar.addAction(self.run_menu_action)
+        run_menu = menu_bar.addMenu("Пуск")
+        run_menu.addAction(self.run_lexer_action)
+        run_menu.addAction(self.run_parser_action)
 
         help_menu = menu_bar.addMenu("Справка")
         help_menu.addAction(self.help_action)
@@ -182,7 +181,8 @@ class MainWindow(QMainWindow):
         toolbar.addAction(self.paste_action)
         toolbar.addAction(self.delete_action)
         toolbar.addSeparator()
-        toolbar.addAction(self.run_action)
+        toolbar.addAction(self.run_lexer_action)
+        toolbar.addAction(self.run_parser_action)
         toolbar.addSeparator()
         toolbar.addAction(self.help_action)
         toolbar.addAction(self.about_action)
@@ -212,8 +212,8 @@ class MainWindow(QMainWindow):
         self.literature_action.triggered.connect(lambda: self._on_show_text_info("Список литературы", "Здесь будет список литературы."))
         self.source_action.triggered.connect(lambda: self._on_show_text_info("Исходный код программы", "Здесь будет информация об исходном коде."))
 
-        self.run_action.triggered.connect(self._on_run)
-        self.run_menu_action.triggered.connect(self._on_run)
+        self.run_lexer_action.triggered.connect(self._on_run_lexer)
+        self.run_parser_action.triggered.connect(self._on_run_parser)
 
         self.help_action.triggered.connect(self._on_show_help)
         self.about_action.triggered.connect(self._on_show_about)
@@ -289,11 +289,13 @@ class MainWindow(QMainWindow):
         else:
             self.setWindowTitle(APP_TITLE)
 
-    def _on_run(self):
+    def _on_run_lexer(self):
         text = self.editor.toPlainText()
         scanner = Scanner()
         tokens, errors = scanner.scan(text)
 
+        self.result_table.setColumnCount(4)
+        self.result_table.setHorizontalHeaderLabels(["Код", "Тип", "Лексема", "Местоположение"])
         self.result_table.setRowCount(0)
 
         for token in tokens:
@@ -304,7 +306,7 @@ class MainWindow(QMainWindow):
             self.result_table.setItem(row, 0, QTableWidgetItem(str(token.code)))
             self.result_table.setItem(row, 1, QTableWidgetItem(token.type))
             self.result_table.setItem(row, 2, QTableWidgetItem(self._display_lexeme(token)))
-            self.result_table.setItem(row, 3, QTableWidgetItem(f"строка {token.line}, [{token.start}:{token.end}]"))
+            self.result_table.setItem(row, 3, QTableWidgetItem(f"Строка {token.line}, позиция {token.start}"))
 
         red_bg = QColor(255, 220, 220)
         red_fg = QColor(180, 0, 0)
@@ -312,19 +314,16 @@ class MainWindow(QMainWindow):
         for error in errors:
             row = self.result_table.rowCount()
             self.result_table.insertRow(row)
-
             code_item = QTableWidgetItem("99")
             type_item = QTableWidgetItem("ОШИБКА")
             lexeme = error.character
             if lexeme.isspace():
                 lexeme = "(пробел)" if lexeme == " " else "(пробелы)"
             lexeme_item = QTableWidgetItem(lexeme)
-            location_item = QTableWidgetItem(f"строка {error.line}, [{error.col}:{error.col}]")
-
+            location_item = QTableWidgetItem(f"Строка {error.line}, позиция {error.col}")
             for item in (code_item, type_item, lexeme_item, location_item):
                 item.setBackground(QBrush(red_bg))
                 item.setForeground(QBrush(red_fg))
-
             self.result_table.setItem(row, 0, code_item)
             self.result_table.setItem(row, 1, type_item)
             self.result_table.setItem(row, 2, lexeme_item)
@@ -332,7 +331,6 @@ class MainWindow(QMainWindow):
 
         total_lexemes = len([t for t in tokens if t.type != "UNKNOWN"])
         total_errors = len(errors)
-
         row = self.result_table.rowCount()
         self.result_table.insertRow(row)
         summary = QTableWidgetItem(f"Итого: лексем - {total_lexemes}, ошибок - {total_errors}")
@@ -345,6 +343,50 @@ class MainWindow(QMainWindow):
 
         self.statusBar().showMessage(f"Лексем: {total_lexemes}, ошибок: {total_errors}")
 
+    def _on_run_parser(self):
+        text = self.editor.toPlainText()
+        scanner = Scanner()
+        tokens, _ = scanner.scan(text)
+
+        parser = Parser()
+        syntax_errors = parser.parse(tokens)
+
+        self.result_table.setColumnCount(3)
+        self.result_table.setHorizontalHeaderLabels(["Неверный фрагмент", "Местоположение", "Описание ошибки"])
+        self.result_table.setRowCount(0)
+
+        red_bg = QColor(255, 220, 220)
+        red_fg = QColor(180, 0, 0)
+
+        for err in syntax_errors:
+            row = self.result_table.rowCount()
+            self.result_table.insertRow(row)
+            fragment_item = QTableWidgetItem(err.fragment)
+            location_item = QTableWidgetItem(f"Строка {err.line}, позиция {err.col}")
+            message_item = QTableWidgetItem(err.message)
+            for item in (fragment_item, location_item, message_item):
+                item.setBackground(QBrush(red_bg))
+                item.setForeground(QBrush(red_fg))
+            self.result_table.setItem(row, 0, fragment_item)
+            self.result_table.setItem(row, 1, location_item)
+            self.result_table.setItem(row, 2, message_item)
+
+        total_errors = len(syntax_errors)
+        row = self.result_table.rowCount()
+        self.result_table.insertRow(row)
+        if total_errors == 0:
+            summary = QTableWidgetItem("Синтаксис корректен, ошибок нет")
+        else:
+            summary = QTableWidgetItem(f"Итого: ошибок - {total_errors}")
+        font = summary.font()
+        font.setBold(True)
+        summary.setFont(font)
+        summary.setBackground(QBrush(QColor(230, 230, 230)))
+        self.result_table.setItem(row, 0, summary)
+        self.result_table.setSpan(row, 0, 1, 3)
+
+        self.statusBar().showMessage(f"Синтаксических ошибок: {total_errors}")
+
     def _display_lexeme(self, token):
         if token.type == "WHITESPACE":
             if "\t" in token.lexeme:
@@ -354,27 +396,33 @@ class MainWindow(QMainWindow):
 
     def _on_table_clicked(self, item):
         row = item.row()
-        location_item = self.result_table.item(row, 3)
+        col_count = self.result_table.columnCount()
+
+        if col_count == 4:
+            location_item = self.result_table.item(row, 3)
+        elif col_count == 3:
+            location_item = self.result_table.item(row, 1)
+        else:
+            return
+
         if not location_item:
             return
 
         text = location_item.text()
         import re
-        m = re.match(r"строка (\d+), \[(\d+):(\d+)\]", text)
+        m = re.match(r"Строка (\d+), позиция (\d+)", text)
         if not m:
             return
 
         line_num = int(m.group(1))
-        start_col = int(m.group(2))
-        end_col = int(m.group(3))
+        col_num = int(m.group(2))
 
         cursor = self.editor.textCursor()
         cursor.movePosition(cursor.MoveOperation.Start)
         for _ in range(line_num - 1):
             cursor.movePosition(cursor.MoveOperation.Down)
-
-        cursor.movePosition(cursor.MoveOperation.Right, cursor.MoveMode.MoveAnchor, start_col - 1)
-        cursor.movePosition(cursor.MoveOperation.Right, cursor.MoveMode.KeepAnchor, end_col - start_col + 1)
+        cursor.movePosition(cursor.MoveOperation.Right, cursor.MoveMode.MoveAnchor, col_num - 1)
+        cursor.movePosition(cursor.MoveOperation.Right, cursor.MoveMode.MoveAnchor, 1)
 
         self.editor.setTextCursor(cursor)
         self.editor.setFocus()
@@ -401,7 +449,8 @@ class MainWindow(QMainWindow):
             "<b>Текст</b><br>"
             "Содержит информационные разделы, связанные с языковым процессором.<br><br>"
             "<b>Пуск (F5)</b><br>"
-            "Запуск анализа исходного текста.<br><br>"
+            "Лексический анализ - разбор текста на лексемы.<br>"
+            "Синтаксический анализ (F6) - проверка структуры объявлений.<br><br>"
             "<b>Справка (F1)</b><br>"
             "Вызов этого руководства и сведений о программе."
         )
@@ -410,8 +459,8 @@ class MainWindow(QMainWindow):
     def _on_show_about(self):
         text = (
             f"<b>{APP_TITLE}</b><br><br>"
-            "Лабораторная работа №1<br>"
-            "«Разработка пользовательского интерфейса (GUI) для языкового процессора»<br><br>"
+            "Лабораторная работа №3<br>"
+            "«Разработка синтаксического анализатора (парсера)»<br><br>"
             "<b>Тема:</b> Объявление структуры на языке Java<br><br>"
             "<b>Автор:</b> Башинов Арья Игоревич, группа АП-326"
         )
